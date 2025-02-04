@@ -12,13 +12,15 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/docker/go-connections/nat"
+	"github.com/tidwall/gjson"
+
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"github.com/tidwall/gjson"
 )
 
-// containerPorts {
 const (
+	// containerPorts {
+
 	MGMT_PORT     = "8091"
 	MGMT_SSL_PORT = "18091"
 
@@ -39,9 +41,9 @@ const (
 
 	KV_PORT     = "11210"
 	KV_SSL_PORT = "11207"
-)
 
-// }
+	// }
+)
 
 // initialServices is the list of services that are enabled by default
 var initialServices = []Service{kv, query, search, index}
@@ -54,8 +56,14 @@ type CouchbaseContainer struct {
 	config *Config
 }
 
+// Deprecated: use Run instead
 // RunContainer creates an instance of the Couchbase container type
 func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomizer) (*CouchbaseContainer, error) {
+	return Run(ctx, "couchbase:6.5.1", opts...)
+}
+
+// Run creates an instance of the Couchbase container type
+func Run(ctx context.Context, img string, opts ...testcontainers.ContainerCustomizer) (*CouchbaseContainer, error) {
 	config := &Config{
 		enabledServices:  make([]Service, 0),
 		username:         "Administrator",
@@ -64,9 +72,7 @@ func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomize
 	}
 
 	req := testcontainers.ContainerRequest{
-		// defaultImage {
-		Image: "couchbase:6.5.1",
-		// }
+		Image:        img,
 		ExposedPorts: []string{MGMT_PORT + "/tcp", MGMT_SSL_PORT + "/tcp"},
 	}
 
@@ -80,7 +86,9 @@ func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomize
 	}
 
 	for _, opt := range opts {
-		opt.Customize(&genericContainerReq)
+		if err := opt.Customize(&genericContainerReq); err != nil {
+			return nil, err
+		}
 
 		// transfer options to the config
 
@@ -105,21 +113,23 @@ func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomize
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, genericContainerReq)
+	var couchbaseContainer *CouchbaseContainer
+	if container != nil {
+		couchbaseContainer = &CouchbaseContainer{container, config}
+	}
 	if err != nil {
-		return nil, err
+		return couchbaseContainer, err
 	}
 
-	couchbaseContainer := CouchbaseContainer{container, config}
-
 	if err = couchbaseContainer.initCluster(ctx); err != nil {
-		return nil, err
+		return couchbaseContainer, fmt.Errorf("init cluster: %w", err)
 	}
 
 	if err = couchbaseContainer.createBuckets(ctx); err != nil {
-		return nil, err
+		return couchbaseContainer, fmt.Errorf("create buckets: %w", err)
 	}
 
-	return &couchbaseContainer, nil
+	return couchbaseContainer, nil
 }
 
 // StartContainer creates an instance of the Couchbase container type
@@ -138,7 +148,6 @@ func StartContainer(ctx context.Context, opts ...Option) (*CouchbaseContainer, e
 	}
 
 	customizers := []testcontainers.ContainerCustomizer{
-		testcontainers.WithImage(config.imageName),
 		WithAdminCredentials(config.username, config.password),
 		WithIndexStorage(config.indexStorageMode),
 		WithBuckets(config.buckets...),
@@ -148,7 +157,7 @@ func StartContainer(ctx context.Context, opts ...Option) (*CouchbaseContainer, e
 		customizers = append(customizers, withService(srv))
 	}
 
-	return RunContainer(ctx, customizers...)
+	return Run(ctx, config.imageName, customizers...)
 }
 
 // ConnectionString returns the connection string to connect to the Couchbase container instance.
@@ -484,9 +493,14 @@ func (c *CouchbaseContainer) createPrimaryIndex(ctx context.Context, bucket buck
 	body := map[string]string{
 		"statement": "CREATE PRIMARY INDEX on `" + bucket.name + "`",
 	}
-
-	_, err := c.doHttpRequest(ctx, QUERY_PORT, "/query/service", http.MethodPost, body, true)
-
+	err := backoff.Retry(func() error {
+		response, err := c.doHttpRequest(ctx, QUERY_PORT, "/query/service", http.MethodPost, body, true)
+		firstError := gjson.Get(string(response), "errors.0.code").Int()
+		if firstError != 0 {
+			return errors.New("index creation failed")
+		}
+		return err
+	}, backoff.WithContext(backoff.NewExponentialBackOff(), ctx))
 	return err
 }
 
@@ -658,10 +672,12 @@ type serviceCustomizer struct {
 	enabledService Service
 }
 
-func (c serviceCustomizer) Customize(req *testcontainers.GenericContainerRequest) {
+func (c serviceCustomizer) Customize(req *testcontainers.GenericContainerRequest) error {
 	for _, port := range c.enabledService.ports {
 		req.ExposedPorts = append(req.ExposedPorts, port+"/tcp")
 	}
+
+	return nil
 }
 
 // withService creates a serviceCustomizer for the given service.

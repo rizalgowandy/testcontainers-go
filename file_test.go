@@ -1,12 +1,14 @@
+// This test is testing very internal logic that should not be exported away from this package. We'll
+// leave it in the main testcontainers package. Do not use for user facing examples.
 package testcontainers
 
 import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,7 +38,7 @@ func Test_IsDir(t *testing.T) {
 		{
 			filepath: "foobar.doc",
 			expected: false,
-			err:      fmt.Errorf("does not exist"),
+			err:      errors.New("does not exist"),
 		},
 	}
 
@@ -44,9 +46,9 @@ func Test_IsDir(t *testing.T) {
 		t.Run(test.filepath, func(t *testing.T) {
 			result, err := isDir(test.filepath)
 			if test.err != nil {
-				assert.NotNil(t, err, "expected error")
+				require.Error(t, err, "expected error")
 			} else {
-				assert.Nil(t, err, "not expected error")
+				require.NoError(t, err, "not expected error")
 			}
 			assert.Equal(t, test.expected, result)
 		})
@@ -71,40 +73,30 @@ func Test_TarDir(t *testing.T) {
 			src := originalSrc
 			if test.abs {
 				absSrc, err := filepath.Abs(src)
-				require.Nil(t, err)
+				require.NoError(t, err)
 
 				src = absSrc
 			}
 
-			buff, err := tarDir(src, 0755)
-			if err != nil {
-				t.Fatal(err)
-			}
+			buff, err := tarDir(src, 0o755)
+			require.NoError(t, err)
 
 			tmpDir := filepath.Join(t.TempDir(), "subfolder")
 			err = untar(tmpDir, bytes.NewReader(buff.Bytes()))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			srcFiles, err := os.ReadDir(src)
-			if err != nil {
-				log.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			for _, srcFile := range srcFiles {
 				if srcFile.IsDir() {
 					continue
 				}
 				srcBytes, err := os.ReadFile(filepath.Join(src, srcFile.Name()))
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 
 				untarBytes, err := os.ReadFile(filepath.Join(tmpDir, "testdata", srcFile.Name()))
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				assert.Equal(t, srcBytes, untarBytes)
 			}
 		})
@@ -113,25 +105,20 @@ func Test_TarDir(t *testing.T) {
 
 func Test_TarFile(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(".", "testdata", "Dockerfile"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	buff, err := tarFile(b, "Docker.file", 0755)
-	if err != nil {
-		t.Fatal(err)
-	}
+	buff, err := tarFile("Docker.file", func(tw io.Writer) error {
+		_, err := tw.Write(b)
+		return err
+	}, int64(len(b)), 0o755)
+	require.NoError(t, err)
 
 	tmpDir := t.TempDir()
 	err = untar(tmpDir, bytes.NewReader(buff.Bytes()))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	untarBytes, err := os.ReadFile(filepath.Join(tmpDir, "Docker.file"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assert.Equal(t, b, untarBytes)
 }
 
@@ -174,10 +161,10 @@ func untar(dst string, r io.Reader) error {
 		// check the file type
 		switch header.Typeflag {
 
-		// if its a dir and it doesn't exist create it
+		// if it's a dir and it doesn't exist create it
 		case tar.TypeDir:
 			if _, err := os.Stat(target); err != nil {
-				if err := os.MkdirAll(target, 0755); err != nil {
+				if err := os.MkdirAll(target, 0o755); err != nil {
 					return err
 				}
 			}
@@ -194,7 +181,7 @@ func untar(dst string, r io.Reader) error {
 				return err
 			}
 
-			// manually close here after each file operation; defering would cause each file close
+			// manually close here after each file operation; deferring would cause each file close
 			// to wait until all operations have completed.
 			f.Close()
 		}

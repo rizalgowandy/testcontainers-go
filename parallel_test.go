@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -22,7 +23,6 @@ func TestParallelContainers(t *testing.T) {
 			reqs: ParallelContainerRequest{
 				{
 					ContainerRequest: ContainerRequest{
-
 						Image: "nginx",
 						ExposedPorts: []string{
 							"10080/tcp",
@@ -32,7 +32,6 @@ func TestParallelContainers(t *testing.T) {
 				},
 				{
 					ContainerRequest: ContainerRequest{
-
 						Image: "bad bad bad",
 						ExposedPorts: []string{
 							"10081/tcp",
@@ -49,7 +48,6 @@ func TestParallelContainers(t *testing.T) {
 			reqs: ParallelContainerRequest{
 				{
 					ContainerRequest: ContainerRequest{
-
 						Image: "bad bad bad",
 						ExposedPorts: []string{
 							"10081/tcp",
@@ -59,7 +57,6 @@ func TestParallelContainers(t *testing.T) {
 				},
 				{
 					ContainerRequest: ContainerRequest{
-
 						Image: "bad bad bad",
 						ExposedPorts: []string{
 							"10081/tcp",
@@ -76,7 +73,6 @@ func TestParallelContainers(t *testing.T) {
 			reqs: ParallelContainerRequest{
 				{
 					ContainerRequest: ContainerRequest{
-
 						Image: "nginx",
 						ExposedPorts: []string{
 							"10080/tcp",
@@ -86,7 +82,6 @@ func TestParallelContainers(t *testing.T) {
 				},
 				{
 					ContainerRequest: ContainerRequest{
-
 						Image: "nginx",
 						ExposedPorts: []string{
 							"10081/tcp",
@@ -103,23 +98,18 @@ func TestParallelContainers(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			res, err := ParallelContainers(context.Background(), tc.reqs, ParallelContainersOptions{})
-			if err != nil {
-				require.NotZero(t, tc.expErrors)
-				e, _ := err.(ParallelContainersError)
-
-				if len(e.Errors) != tc.expErrors {
-					t.Fatalf("expected erorrs: %d, got: %d\n", tc.expErrors, len(e.Errors))
-				}
-			}
-
 			for _, c := range res {
-				c := c
-				terminateContainerOnEnd(t, context.Background(), c)
+				CleanupContainer(t, c)
 			}
 
-			if len(res) != tc.resLen {
-				t.Fatalf("expected containers: %d, got: %d\n", tc.resLen, len(res))
+			if tc.expErrors != 0 {
+				require.Error(t, err)
+				var errs ParallelContainersError
+				require.ErrorAs(t, err, &errs)
+				require.Len(t, errs.Errors, tc.expErrors)
 			}
+
+			require.Len(t, res, tc.resLen)
 		})
 	}
 }
@@ -161,10 +151,8 @@ func TestParallelContainersWithReuse(t *testing.T) {
 	ctx := context.Background()
 
 	res, err := ParallelContainers(ctx, parallelRequest, ParallelContainersOptions{})
-	if err != nil {
-		e, _ := err.(ParallelContainersError)
-		t.Fatalf("expected errors: %d, got: %d\n", 0, len(e.Errors))
+	for _, c := range res {
+		CleanupContainer(t, c)
 	}
-	// Container is reused, only terminate first container
-	terminateContainerOnEnd(t, ctx, res[0])
+	require.NoError(t, err)
 }

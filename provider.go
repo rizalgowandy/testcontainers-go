@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/testcontainers/testcontainers-go/internal/config"
+	"github.com/testcontainers/testcontainers-go/internal/core"
 )
 
 // possible provider types
@@ -22,7 +25,7 @@ type (
 	// GenericProviderOptions defines options applicable to all providers
 	GenericProviderOptions struct {
 		Logger         Logging
-		DefaultNetwork string
+		defaultNetwork string
 	}
 
 	// GenericProviderOption defines a common interface to modify GenericProviderOptions
@@ -136,24 +139,16 @@ func NewDockerProvider(provOpts ...DockerProviderOption) (*DockerProvider, error
 		provOpts[idx].ApplyDockerTo(o)
 	}
 
-	c, err := NewDockerClient()
+	ctx := context.Background()
+	c, err := NewDockerClientWithOpts(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	tcConfig := ReadConfig()
-
-	p := &DockerProvider{
+	return &DockerProvider{
 		DockerProviderOptions: o,
-		host:                  tcConfig.Host,
+		host:                  core.MustExtractDockerHost(ctx),
 		client:                c,
-		config:                tcConfig,
-	}
-
-	// log docker server info only once
-	logOnce.Do(func() {
-		LogDockerServerInfo(context.Background(), p.client, p.Logger)
-	})
-
-	return p, nil
+		config:                config.Read(),
+	}, nil
 }

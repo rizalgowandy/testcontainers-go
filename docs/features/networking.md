@@ -45,7 +45,63 @@ It is normally advisable to use `Host` and `MappedPort` together when constructi
 <!--/codeinclude-->
 
 !!! info
-    Setting the `TC_HOST` environment variable overrides the host of the docker daemon where the container port is exposed. For example, `TC_HOST=172.17.0.1`.
+    Setting the `TESTCONTAINERS_HOST_OVERRIDE` environment variable overrides the host of the docker daemon where the container port is exposed. For example, `TESTCONTAINERS_HOST_OVERRIDE=172.17.0.1`.
+
+## Exposing host ports to the container
+
+- Since testcontainers-go <a href="https://github.com/testcontainers/testcontainers-go/releases/tag/v0.31.0"><span class="tc-version">:material-tag: v0.31.0</span></a>
+
+In some cases it is necessary to make a network connection from a container to a socket that is listening on the host machine. Natively, Docker has limited support for this model across platforms. Testcontainers, however, makes this possible, allowing your code to access services running on the host machine.
+
+In this example, assume that `freePorts` is a slice of ports on our test host machine where different servers (e.g. a web application) are running.
+
+We can simply create a container and expose these ports to the container using the `ContainerRequest` struct:
+
+<!--codeinclude-->
+[Exposing the host ports](../../port_forwarding_test.go) inside_block:hostAccessPorts
+<!--/codeinclude-->
+
+!!!warning
+    Note that the server/s listening on those ports on the host must have been started before the container is created.
+
+From a container's perspective, the hostname will be `host.testcontainers.internal` and the port will be the same value as any in the `freePorts` slice. _Testcontainers for Go_ exposes the host internal name as the `testcontainers.HostInternal` constant, so you can use it to build the address to connect to the host on the exposed port.
+
+<!--codeinclude-->
+[Accessing the exposed host port from a container](../../port_forwarding_test.go) inside_block:wgetHostInternal
+<!--/codeinclude-->
+
+In the above example we are executing an HTTP request from the command line inside the given container to the host machine.
+
+### How it works
+
+When you expose a host port to a container, _Testcontainers for Go_ creates an SSHD server companion container, which will be used to forward the traffic from the container to the host machine. This is done by creating a tunnel between the container and the host machine through the SSHD server container.
+
+You can find more information about this SSHD server container on its GitHub repository: [https://github.com/testcontainers/sshd-docker](https://github.com/testcontainers/sshd-docker).
+
+<!--codeinclude-->
+[SSHD Server Docker Image](../../port_forwarding.go) inside_block:hubSshdImage
+<!--/codeinclude-->
+
+!!!important
+    At this moment, each container request will use a new SSHD server container. This means that if you create multiple containers with exposed host ports, each one will have its own SSHD server container.
+
+## Docker's host networking mode
+
+From [Docker documentation](https://docs.docker.com/network/drivers/host/):
+
+> If you use the host network mode for a container, that container’s network stack is not isolated from the Docker host (the container shares the host’s networking namespace), and the container does not get its own IP-address allocated. For instance, if you run a container which binds to port 80 and you use host networking, the container’s application is available on port 80 on the host’s IP address.
+
+But according to those docs, it's supported only for Linux hosts:
+
+> The host networking driver only works on Linux hosts, and is not supported on Docker Desktop for Mac, Docker Desktop for Windows, or Docker EE for Windows Server.
+
+In the case you need to skip a test on non-Linux hosts, you can use the `SkipIfDockerDesktop` function:
+
+<!--codeinclude-->
+[Skipping tests on non-Linux hosts](../../docker_test.go) inside_block:skipIfDockerDesktop
+<!--/codeinclude-->
+
+It will try to get a Docker client and obtain its Info. In the case the Operating System is "Docker Desktop", it will skip the test.
 
 ## Advanced networking
 
@@ -54,6 +110,8 @@ Docker provides the ability for you to create custom networks and place containe
 !!! tip
     Note that _Testcontainers for Go_ allows a container to be on multiple networks including network aliases.
 
+For more information about how to create networks using _Testcontainers for Go_, please refer to the [How to create a network](./creating_networks.md) section.
+
 <!--codeinclude-->
-[Creating custom networks](../../docker_test.go) inside_block:testNetworkAliases
+[Creating custom networks](../../network/network_test.go) inside_block:testNetworkAliases
 <!--/codeinclude-->

@@ -2,6 +2,7 @@ package toxiproxy
 
 import (
 	"context"
+
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -26,9 +27,9 @@ func setupRedis(ctx context.Context, network string, networkAlias []string) (*re
 		ContainerRequest: req,
 		Started:          true,
 	})
-	if err != nil {
-		return nil, err
+	var nginxC *redisContainer
+	if container != nil {
+		nginxC = &redisContainer{Container: container}
 	}
-
-	return &redisContainer{Container: container}, nil
+	return nginxC, err
 }

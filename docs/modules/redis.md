@@ -1,6 +1,6 @@
 # Redis
 
-Not available until the next release of testcontainers-go <a href="https://github.com/testcontainers/testcontainers-go"><span class="tc-version">:material-tag: main</span></a>
+Since testcontainers-go <a href="https://github.com/testcontainers/testcontainers-go/releases/tag/v0.20.0"><span class="tc-version">:material-tag: v0.20.0</span></a>
 
 ## Introduction
 
@@ -17,18 +17,26 @@ go get github.com/testcontainers/testcontainers-go/modules/redis
 ## Usage example
 
 <!--codeinclude-->
-[Creating a Redis container](../../modules/redis/redis_test.go) inside_block:createRedisContainer
+[Creating a Redis container](../../modules/redis/examples_test.go) inside_block:runRedisContainer
 <!--/codeinclude-->
 
 ## Module Reference
 
-The Redis module exposes one entrypoint function to create the containerr, and this function receives two parameters:
+### Run function
+
+- Since testcontainers-go <a href="https://github.com/testcontainers/testcontainers-go/releases/tag/v0.32.0"><span class="tc-version">:material-tag: v0.32.0</span></a>
+
+!!!info
+    The `RunContainer(ctx, opts...)` function is deprecated and will be removed in the next major release of _Testcontainers for Go_.
+
+The Redis module exposes one entrypoint function to create the container, and this function receives three parameters:
 
 ```golang
-func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomizer) (*RedisContainer, error)
+func Run(ctx context.Context, img string, opts ...testcontainers.ContainerCustomizer) (*RedisContainer, error)
 ```
 
 - `context.Context`, the Go context.
+- `string`, the Docker image to use.
 - `testcontainers.ContainerCustomizer`, a variadic argument for passing options.
 
 ### Container Options
@@ -40,42 +48,28 @@ When starting the Redis container, you can pass options in a variadic way to con
 
 #### Image
 
-If you need to set a different Redis Docker image, you can use `testcontainers.WithImage` with a valid Docker image
-for Postgres. E.g. `testcontainers.WithImage("docker.io/redis:7")`.
+If you need to set a different Redis Docker image, you can set a valid Docker image as the second argument in the `Run` function.
+E.g. `Run(context.Background(), "redis:7")`.
 
-<!--codeinclude-->
-[Use a different image](../../modules/redis/redis_test.go) inside_block:withImage
-<!--/codeinclude-->
+{% include "../features/common_functional_options.md" %}
 
 #### Snapshotting
 
-By default Redis saves snapshots of the dataset on disk, in a binary file called dump.rdb. You can configure Redis to have it save the dataset every N seconds if there are at least M changes in the dataset.
+By default Redis saves snapshots of the dataset on disk, in a binary file called dump.rdb. You can configure Redis to have it save the dataset every `N` seconds if there are at least `M` changes in the dataset. E.g. `WithSnapshotting(10, 1)`.
 
 !!!tip
     Please check [Redis docs on persistence](https://redis.io/docs/management/persistence/#snapshotting) for more information.
 
-<!--codeinclude-->
-[Saving snapshots](../../modules/redis/redis_test.go) inside_block:withSnapshotting
-<!--/codeinclude-->
-
 #### Log Level
 
-By default Redis saves snapshots of the dataset on disk, in a binary file called dump.rdb. You can configure Redis to have it save the dataset every N seconds if there are at least M changes in the dataset.
+By default Redis saves snapshots of the dataset on disk, in a binary file called dump.rdb. You can configure Redis to have it save the dataset every N seconds if there are at least M changes in the dataset. E.g. `WithLogLevel(LogLevelDebug)`.
 
 !!!tip
     Please check [Redis docs on logging](https://redis.io/docs/reference/modules/modules-api-ref/#redismodule_log) for more information.
 
-<!--codeinclude-->
-[Changing the log level](../../modules/redis/redis_test.go) inside_block:withLogLevel 
-<!--/codeinclude-->
-
 #### Redis configuration
 
-In the case you have a custom config file for Redis, it's possible to copy that file into the container before it's started.
-
-<!--codeinclude-->
-[Include custom configuration file](../../modules/redis/redis_test.go) inside_block:withConfigFile
-<!--/codeinclude-->
+In the case you have a custom config file for Redis, it's possible to copy that file into the container before it's started. E.g. `WithConfigFile(filepath.Join("testdata", "redis7.conf"))`.
 
 ### Container Methods
 

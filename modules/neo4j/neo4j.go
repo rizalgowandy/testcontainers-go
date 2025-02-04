@@ -6,15 +6,9 @@ import (
 	"net/http"
 
 	"github.com/docker/go-connections/nat"
+
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-)
-
-const (
-	// defaultImage {
-	defaultImageName = "neo4j"
-	defaultTag       = "4.4"
-	// }
 )
 
 const (
@@ -47,18 +41,24 @@ func (c Neo4jContainer) BoltUrl(ctx context.Context) (string, error) {
 	return fmt.Sprintf("neo4j://%s:%d", host, mappedPort.Int()), nil
 }
 
+// Deprecated: use Run instead
 // RunContainer creates an instance of the Neo4j container type
-func RunContainer(ctx context.Context, options ...testcontainers.ContainerCustomizer) (*Neo4jContainer, error) {
+func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomizer) (*Neo4jContainer, error) {
+	return Run(ctx, "neo4j:4.4", opts...)
+}
+
+// Run creates an instance of the Neo4j container type
+func Run(ctx context.Context, img string, opts ...testcontainers.ContainerCustomizer) (*Neo4jContainer, error) {
 	httpPort, _ := nat.NewPort("tcp", defaultHttpPort)
 	request := testcontainers.ContainerRequest{
-		Image: fmt.Sprintf("docker.io/%s:%s", defaultImageName, defaultTag),
+		Image: img,
 		Env: map[string]string{
 			"NEO4J_AUTH": "none",
 		},
 		ExposedPorts: []string{
-			fmt.Sprintf("%s/tcp", defaultBoltPort),
-			fmt.Sprintf("%s/tcp", defaultHttpPort),
-			fmt.Sprintf("%s/tcp", defaultHttpsPort),
+			defaultBoltPort + "/tcp",
+			defaultHttpPort + "/tcp",
+			defaultHttpsPort + "/tcp",
 		},
 		WaitingFor: &wait.MultiStrategy{
 			Strategies: []wait.Strategy{
@@ -77,12 +77,14 @@ func RunContainer(ctx context.Context, options ...testcontainers.ContainerCustom
 		Started:          true,
 	}
 
-	if len(options) == 0 {
-		options = append(options, WithoutAuthentication())
+	if len(opts) == 0 {
+		opts = append(opts, WithoutAuthentication())
 	}
 
-	for _, option := range options {
-		option.Customize(&genericContainerReq)
+	for _, option := range opts {
+		if err := option.Customize(&genericContainerReq); err != nil {
+			return nil, err
+		}
 	}
 
 	err := validate(&genericContainerReq)
@@ -90,15 +92,17 @@ func RunContainer(ctx context.Context, options ...testcontainers.ContainerCustom
 		return nil, err
 	}
 
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: request,
-		Started:          true,
-	})
-	if err != nil {
-		return nil, err
+	container, err := testcontainers.GenericContainer(ctx, genericContainerReq)
+	var c *Neo4jContainer
+	if container != nil {
+		c = &Neo4jContainer{Container: container}
 	}
 
-	return &Neo4jContainer{Container: container}, nil
+	if err != nil {
+		return c, fmt.Errorf("generic container: %w", err)
+	}
+
+	return c, nil
 }
 
 func isHttpOk() func(status int) bool {

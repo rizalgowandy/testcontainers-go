@@ -3,7 +3,6 @@ package pulsar_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -11,41 +10,37 @@ import (
 	"time"
 
 	"github.com/apache/pulsar-client-go/pulsar"
+	"github.com/apache/pulsar-client-go/pulsar/log"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/testcontainers/testcontainers-go"
 	testcontainerspulsar "github.com/testcontainers/testcontainers-go/modules/pulsar"
+	tcnetwork "github.com/testcontainers/testcontainers-go/network"
 )
 
-// logConsumerForTesting {
-// logConsumer is a testcontainers.LogConsumer that prints the log to stdout
-type testLogConsumer struct{}
+// noopLogConsumer implements testcontainers.LogConsumer
+// and does nothing with the logs.
+type noopLogConsumer struct{}
 
-// Accept prints the log to stdout
-func (lc *testLogConsumer) Accept(l testcontainers.Log) {
-	fmt.Print(string(l.Content))
-}
-
-// }
+// Accept implements testcontainers.LogConsumer.
+func (*noopLogConsumer) Accept(testcontainers.Log) {}
 
 func TestPulsar(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	nwName := "pulsar-test"
-	_, err := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
-		NetworkRequest: testcontainers.NetworkRequest{
-			Name: nwName,
-		},
-	})
+	nw, err := tcnetwork.New(ctx)
 	require.NoError(t, err)
+	testcontainers.CleanupNetwork(t, nw)
+
+	nwName := nw.Name
 
 	tests := []struct {
-		name         string
-		opts         []testcontainers.ContainerCustomizer
-		logConsumers []testcontainers.LogConsumer
+		name string
+		opts []testcontainers.ContainerCustomizer
 	}{
 		{
 			name: "default",
@@ -53,9 +48,6 @@ func TestPulsar(t *testing.T) {
 		{
 			name: "with modifiers",
 			opts: []testcontainers.ContainerCustomizer{
-				// setPulsarImage {
-				testcontainers.WithImage("docker.io/apachepulsar/pulsar:2.10.2"),
-				// }
 				// addPulsarEnv {
 				testcontainerspulsar.WithPulsarEnv("brokerDeduplicationEnabled", "true"),
 				// }
@@ -93,41 +85,34 @@ func TestPulsar(t *testing.T) {
 			},
 		},
 		{
-			name:         "with log consumers",
-			logConsumers: []testcontainers.LogConsumer{&testLogConsumer{}},
+			name: "with log consumers",
+			opts: []testcontainers.ContainerCustomizer{
+				// withLogConsumers {
+				testcontainers.WithLogConsumers(&noopLogConsumer{}),
+				// }
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// startPulsarContainer {
-			c, err := testcontainerspulsar.RunContainer(
+			c, err := testcontainerspulsar.Run(
 				ctx,
+				"apachepulsar/pulsar:2.10.2",
 				tt.opts...,
 			)
-			require.Nil(t, err)
-			defer func() {
-				err := c.Terminate(ctx)
-				require.Nil(t, err)
-			}()
-			// }
-
-			// withLogConsumers {
-			if len(c.LogConsumers) > 0 {
-				c.WithLogConsumers(ctx, tt.logConsumers...)
-				defer c.StopLogProducer()
-			}
-			// }
+			testcontainers.CleanupContainer(t, c)
+			require.NoError(t, err)
 
 			// getBrokerURL {
 			brokerURL, err := c.BrokerURL(ctx)
-			require.Nil(t, err)
 			// }
+			require.NoError(t, err)
 
 			// getAdminURL {
 			serviceURL, err := c.HTTPServiceURL(ctx)
-			require.Nil(t, err)
 			// }
+			require.NoError(t, err)
 
 			assert.True(t, strings.HasPrefix(brokerURL, "pulsar://"))
 			assert.True(t, strings.HasPrefix(serviceURL, "http://"))
@@ -136,8 +121,9 @@ func TestPulsar(t *testing.T) {
 				URL:               brokerURL,
 				OperationTimeout:  30 * time.Second,
 				ConnectionTimeout: 30 * time.Second,
+				Logger:            log.DefaultNopLogger(),
 			})
-			require.Nil(t, err)
+			require.NoError(t, err)
 			t.Cleanup(func() { pc.Close() })
 
 			subscriptionName := "pulsar-test"
@@ -147,37 +133,40 @@ func TestPulsar(t *testing.T) {
 				SubscriptionName: subscriptionName,
 				Type:             pulsar.Exclusive,
 			})
-			require.Nil(t, err)
+			require.NoError(t, err)
 			t.Cleanup(func() { consumer.Close() })
 
 			msgChan := make(chan []byte)
 			go func() {
 				msg, err := consumer.Receive(ctx)
 				if err != nil {
-					fmt.Println("failed to receive message", err)
+					t.Log("failed to receive message", err)
 					return
 				}
 				msgChan <- msg.Payload()
-				consumer.Ack(msg)
+				err = consumer.Ack(msg)
+				if err != nil {
+					t.Log("failed to send ack", err)
+					return
+				}
 			}()
 
 			producer, err := pc.CreateProducer(pulsar.ProducerOptions{
 				Topic: "test-topic",
 			})
-			require.Nil(t, err)
+			require.NoError(t, err)
 
-			producer.Send(ctx, &pulsar.ProducerMessage{
+			_, err = producer.Send(ctx, &pulsar.ProducerMessage{
 				Payload: []byte("hello world"),
 			})
+			require.NoError(t, err)
 
 			ticker := time.NewTicker(1 * time.Minute)
 			select {
 			case <-ticker.C:
 				t.Fatal("did not receive message in time")
 			case msg := <-msgChan:
-				if string(msg) != "hello world" {
-					t.Fatal("received unexpected message bytes")
-				}
+				require.Equalf(t, "hello world", string(msg), "received unexpected message bytes")
 			}
 
 			// get topic statistics using the Admin endpoint
@@ -186,24 +175,24 @@ func TestPulsar(t *testing.T) {
 			}
 
 			resp, err := httpClient.Get(serviceURL + "/admin/v2/persistent/public/default/test-topic/stats")
-			require.Nil(t, err)
+			require.NoError(t, err)
 			defer resp.Body.Close()
 
 			body, err := io.ReadAll(resp.Body)
-			require.Nil(t, err)
+			require.NoError(t, err)
 
-			var stats map[string]interface{}
+			var stats map[string]any
 			err = json.Unmarshal(body, &stats)
-			require.Nil(t, err)
+			require.NoError(t, err)
 
 			subscriptions := stats["subscriptions"]
 			require.NotNil(t, subscriptions)
 
-			subscriptionsMap := subscriptions.(map[string]interface{})
+			subscriptionsMap := subscriptions.(map[string]any)
 
 			// check that the subscription exists
 			_, ok := subscriptionsMap[subscriptionName]
-			assert.True(t, ok)
+			require.True(t, ok)
 		})
 	}
 }

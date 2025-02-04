@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -10,11 +11,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const rootUser = "root"
-const defaultUser = "test"
-const defaultPassword = "test"
-const defaultDatabaseName = "test"
-const defaultImage = "mysql:8"
+const (
+	rootUser            = "root"
+	defaultUser         = "test"
+	defaultPassword     = "test"
+	defaultDatabaseName = "test"
+)
 
 // MySQLContainer represents the MySQL container type used in the module
 type MySQLContainer struct {
@@ -25,7 +27,7 @@ type MySQLContainer struct {
 }
 
 func WithDefaultCredentials() testcontainers.CustomizeRequestOption {
-	return func(req *testcontainers.GenericContainerRequest) {
+	return func(req *testcontainers.GenericContainerRequest) error {
 		username := req.Env["MYSQL_USER"]
 		password := req.Env["MYSQL_PASSWORD"]
 		if strings.EqualFold(rootUser, username) {
@@ -37,13 +39,21 @@ func WithDefaultCredentials() testcontainers.CustomizeRequestOption {
 			req.Env["MYSQL_ALLOW_EMPTY_PASSWORD"] = "yes"
 			delete(req.Env, "MYSQL_PASSWORD")
 		}
+
+		return nil
 	}
 }
 
+// Deprecated: use Run instead
 // RunContainer creates an instance of the MySQL container type
 func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomizer) (*MySQLContainer, error) {
+	return Run(ctx, "mysql:8.0.36", opts...)
+}
+
+// Run creates an instance of the MySQL container type
+func Run(ctx context.Context, img string, opts ...testcontainers.ContainerCustomizer) (*MySQLContainer, error) {
 	req := testcontainers.ContainerRequest{
-		Image:        defaultImage,
+		Image:        img,
 		ExposedPorts: []string{"3306/tcp", "33060/tcp"},
 		Env: map[string]string{
 			"MYSQL_USER":     defaultUser,
@@ -61,7 +71,9 @@ func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomize
 	opts = append(opts, WithDefaultCredentials())
 
 	for _, opt := range opts {
-		opt.Customize(&genericContainerReq)
+		if err := opt.Customize(&genericContainerReq); err != nil {
+			return nil, err
+		}
 	}
 
 	username, ok := req.Env["MYSQL_USER"]
@@ -71,17 +83,34 @@ func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomize
 	password := req.Env["MYSQL_PASSWORD"]
 
 	if len(password) == 0 && password == "" && !strings.EqualFold(rootUser, username) {
-		return nil, fmt.Errorf("empty password can be used only with the root user")
+		return nil, errors.New("empty password can be used only with the root user")
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, genericContainerReq)
-	if err != nil {
-		return nil, err
+	var c *MySQLContainer
+	if container != nil {
+		c = &MySQLContainer{
+			Container: container,
+			password:  password,
+			username:  username,
+			database:  req.Env["MYSQL_DATABASE"],
+		}
 	}
 
-	database := req.Env["MYSQL_DATABASE"]
+	if err != nil {
+		return c, fmt.Errorf("generic container: %w", err)
+	}
 
-	return &MySQLContainer{container, username, password, database}, nil
+	return c, nil
+}
+
+// MustConnectionString panics if the address cannot be determined.
+func (c *MySQLContainer) MustConnectionString(ctx context.Context, args ...string) string {
+	addr, err := c.ConnectionString(ctx, args...)
+	if err != nil {
+		panic(err)
+	}
+	return addr
 }
 
 func (c *MySQLContainer) ConnectionString(ctx context.Context, args ...string) (string, error) {
@@ -108,45 +137,55 @@ func (c *MySQLContainer) ConnectionString(ctx context.Context, args ...string) (
 }
 
 func WithUsername(username string) testcontainers.CustomizeRequestOption {
-	return func(req *testcontainers.GenericContainerRequest) {
+	return func(req *testcontainers.GenericContainerRequest) error {
 		req.Env["MYSQL_USER"] = username
+
+		return nil
 	}
 }
 
 func WithPassword(password string) testcontainers.CustomizeRequestOption {
-	return func(req *testcontainers.GenericContainerRequest) {
+	return func(req *testcontainers.GenericContainerRequest) error {
 		req.Env["MYSQL_PASSWORD"] = password
+
+		return nil
 	}
 }
 
 func WithDatabase(database string) testcontainers.CustomizeRequestOption {
-	return func(req *testcontainers.GenericContainerRequest) {
+	return func(req *testcontainers.GenericContainerRequest) error {
 		req.Env["MYSQL_DATABASE"] = database
+
+		return nil
 	}
 }
 
 func WithConfigFile(configFile string) testcontainers.CustomizeRequestOption {
-	return func(req *testcontainers.GenericContainerRequest) {
+	return func(req *testcontainers.GenericContainerRequest) error {
 		cf := testcontainers.ContainerFile{
 			HostFilePath:      configFile,
 			ContainerFilePath: "/etc/mysql/conf.d/my.cnf",
-			FileMode:          0755,
+			FileMode:          0o755,
 		}
 		req.Files = append(req.Files, cf)
+
+		return nil
 	}
 }
 
 func WithScripts(scripts ...string) testcontainers.CustomizeRequestOption {
-	return func(req *testcontainers.GenericContainerRequest) {
+	return func(req *testcontainers.GenericContainerRequest) error {
 		var initScripts []testcontainers.ContainerFile
 		for _, script := range scripts {
 			cf := testcontainers.ContainerFile{
 				HostFilePath:      script,
 				ContainerFilePath: "/docker-entrypoint-initdb.d/" + filepath.Base(script),
-				FileMode:          0755,
+				FileMode:          0o755,
 			}
 			initScripts = append(initScripts, cf)
 		}
 		req.Files = append(req.Files, initScripts...)
+
+		return nil
 	}
 }

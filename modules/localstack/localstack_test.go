@@ -2,17 +2,16 @@ package localstack
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/testcontainers/testcontainers-go/wait"
-
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/network"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func generateContainerRequest() *LocalStackContainerRequest {
@@ -41,8 +40,8 @@ func TestConfigureDockerHost(t *testing.T) {
 			req.Env[tt.envVar] = "foo"
 
 			reason, err := configureDockerHost(req, tt.envVar)
-			assert.Nil(t, err)
-			assert.Equal(t, "explicitly as environment variable", reason)
+			require.NoError(t, err)
+			require.Equal(t, "explicitly as environment variable", reason)
 		})
 
 		t.Run("HOSTNAME_EXTERNAL matches the last network alias on a container with non-default network", func(t *testing.T) {
@@ -56,19 +55,19 @@ func TestConfigureDockerHost(t *testing.T) {
 			}
 
 			reason, err := configureDockerHost(req, tt.envVar)
-			assert.Nil(t, err)
-			assert.Equal(t, "to match last network alias on container with non-default network", reason)
-			assert.Equal(t, "foo3", req.Env[tt.envVar])
+			require.NoError(t, err)
+			require.Equal(t, "to match last network alias on container with non-default network", reason)
+			require.Equal(t, "foo3", req.Env[tt.envVar])
 		})
 
 		t.Run("HOSTNAME_EXTERNAL matches the daemon host because there are no aliases", func(t *testing.T) {
 			dockerProvider, err := testcontainers.NewDockerProvider()
-			assert.Nil(t, err)
+			require.NoError(t, err)
 			defer dockerProvider.Close()
 
 			// because the daemon host could be a remote one, we need to get it from the provider
 			expectedDaemonHost, err := dockerProvider.DaemonHost(context.Background())
-			assert.Nil(t, err)
+			require.NoError(t, err)
 
 			req := generateContainerRequest()
 
@@ -76,169 +75,160 @@ func TestConfigureDockerHost(t *testing.T) {
 			req.NetworkAliases = map[string][]string{}
 
 			reason, err := configureDockerHost(req, tt.envVar)
-			assert.Nil(t, err)
-			assert.Equal(t, "to match host-routable address for container", reason)
-			assert.Equal(t, expectedDaemonHost, req.Env[tt.envVar])
+			require.NoError(t, err)
+			require.Equal(t, "to match host-routable address for container", reason)
+			require.Equal(t, expectedDaemonHost, req.Env[tt.envVar])
 		})
 	}
 }
 
-func TestIsLegacyMode(t *testing.T) {
+func TestIsLegacyVersion(t *testing.T) {
 	tests := []struct {
 		version string
 		want    bool
 	}{
 		{"foo", true},
 		{"latest", false},
+		{"latest-amd64", false},
+		{"s3-latest", false},
+		{"s3-latest-amd64", false},
+		{"stable", false},
+		{"stable-amd64", false},
 		{"0.10.0", true},
+		{"0.10.0-amd64", true},
 		{"0.10.999", true},
+		{"0.10.999-amd64", true},
 		{"0.11", false},
+		{"0.11-amd64", false},
 		{"0.11.2", false},
+		{"0.11.2-amd64", false},
 		{"0.12", false},
+		{"0.12-amd64", false},
+		{"1", false},
+		{"1-amd64", false},
 		{"1.0", false},
+		{"1.0-amd64", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.version, func(t *testing.T) {
-			got := isLegacyMode(fmt.Sprintf("localstack/localstack:%s", tt.version))
-			assert.Equal(t, tt.want, got, "runInLegacyMode() = %v, want %v", got, tt.want)
+			got := !isMinimumVersion("localstack/localstack:"+tt.version, "v0.11")
+			require.Equal(t, tt.want, got, "runInLegacyMode() = %v, want %v", got, tt.want)
 		})
 	}
 }
 
-func TestRun(t *testing.T) {
-	ctx := context.Background()
+func TestIsMinimumVersion2(t *testing.T) {
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{"foo", false},
+		{"latest", true},
+		{"latest-amd64", true},
+		{"s3-latest", true},
+		{"s3-latest-amd64", true},
+		{"stable", true},
+		{"stable-amd64", true},
+		{"1", false},
+		{"1-amd64", false},
+		{"1.12", false},
+		{"1.12-amd64", false},
+		{"1.12.2", false},
+		{"1.12.2-amd64", false},
+		{"2", true},
+		{"2-amd64", true},
+		{"2.0", true},
+		{"2.0-amd64", true},
+		{"2.0.0", true},
+		{"2.0.0-amd64", true},
+		{"2.0.1", true},
+		{"2.0.1-amd64", true},
+		{"2.1", true},
+		{"2.1-amd64", true},
+		{"3", true},
+		{"3-amd64", true},
+	}
 
-	// withImage {
-	container, err := RunContainer(
-		ctx,
-		testcontainers.WithImage(fmt.Sprintf("localstack/localstack:%s", defaultVersion)),
-	)
-	// }
-
-	t.Run("multiple services should be exposed using the same port", func(t *testing.T) {
-		require.Nil(t, err)
-		assert.NotNil(t, container)
-
-		rawPorts, err := container.Ports(ctx)
-		require.Nil(t, err)
-
-		ports := 0
-		// only one port is exposed among all the ports in the container
-		for _, v := range rawPorts {
-			if len(v) > 0 {
-				ports++
-			}
-		}
-
-		assert.Equal(t, 1, ports) // a single port is exposed
-	})
+	for _, tt := range tests {
+		t.Run(tt.version, func(t *testing.T) {
+			got := isMinimumVersion("localstack/localstack:"+tt.version, "v2")
+			require.Equal(t, tt.want, got, "runInLegacyMode() = %v, want %v", got, tt.want)
+		})
+	}
 }
 
-func TestStart(t *testing.T) {
-	ctx := context.Background()
+func TestRunContainer(t *testing.T) {
+	tests := []struct {
+		version string
+	}{
+		{"1.4.0"},
+		{"2.0.0"},
+	}
 
-	// withoutNetwork {
-	container, err := StartContainer(
-		ctx,
-		OverrideContainerRequest(testcontainers.ContainerRequest{
-			Image: fmt.Sprintf("localstack/localstack:%s", "2.0.0"),
-		}),
-	)
-	// }
+	for _, tt := range tests {
+		ctx := context.Background()
 
-	t.Run("multiple services should be exposed using the same port", func(t *testing.T) {
-		require.Nil(t, err)
-		assert.NotNil(t, container)
+		ctr, err := Run(
+			ctx,
+			"localstack/localstack:"+tt.version,
+		)
+		testcontainers.CleanupContainer(t, ctr)
 
-		rawPorts, err := container.Ports(ctx)
-		require.Nil(t, err)
+		t.Run("Localstack:"+tt.version+" - multiple services exposed on same port", func(t *testing.T) {
+			require.NoError(t, err)
+			require.NotNil(t, ctr)
 
-		ports := 0
-		// only one port is exposed among all the ports in the container
-		for _, v := range rawPorts {
-			if len(v) > 0 {
-				ports++
+			inspect, err := ctr.Inspect(ctx)
+			require.NoError(t, err)
+
+			rawPorts := inspect.NetworkSettings.Ports
+
+			ports := 0
+			// only one port is exposed among all the ports in the container
+			for _, v := range rawPorts {
+				if len(v) > 0 {
+					ports++
+				}
 			}
-		}
 
-		assert.Equal(t, 1, ports) // a single port is exposed
-	})
+			require.Equal(t, 1, ports) // a single port is exposed
+		})
+	}
 }
 
 func TestStartWithoutOverride(t *testing.T) {
-	// noOverrideContainerRequest {
 	ctx := context.Background()
 
-	container, err := RunContainer(ctx)
-	require.Nil(t, err)
-	assert.NotNil(t, container)
-	// }
-}
-
-func TestStartWithNetwork(t *testing.T) {
-	// withNetwork {
-	ctx := context.Background()
-
-	nw, err := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
-		NetworkRequest: testcontainers.NetworkRequest{
-			Name: "localstack-network",
-		},
-	})
-	require.Nil(t, err)
-	assert.NotNil(t, nw)
-
-	container, err := RunContainer(
-		ctx,
-		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
-			ContainerRequest: testcontainers.ContainerRequest{
-				Image:          "localstack/localstack:0.13.0",
-				Env:            map[string]string{"SERVICES": "s3,sqs"},
-				Networks:       []string{"localstack-network"},
-				NetworkAliases: map[string][]string{"localstack-network": {"localstack"}},
-			},
-		}),
-	)
-	require.Nil(t, err)
-	assert.NotNil(t, container)
-	// }
-
-	networks, err := container.Networks(ctx)
-	require.Nil(t, err)
-	require.Equal(t, 1, len(networks))
-	require.Equal(t, "localstack-network", networks[0])
+	ctr, err := Run(ctx, "localstack/localstack:2.0.0")
+	testcontainers.CleanupContainer(t, ctr)
+	require.NoError(t, err)
+	require.NotNil(t, ctr)
 }
 
 func TestStartV2WithNetwork(t *testing.T) {
 	ctx := context.Background()
 
-	nw, err := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
-		NetworkRequest: testcontainers.NetworkRequest{
-			Name: "localstack-network-v2",
-		},
-	})
-	require.Nil(t, err)
-	assert.NotNil(t, nw)
+	nw, err := network.New(ctx)
+	require.NoError(t, err)
+	testcontainers.CleanupNetwork(t, nw)
 
-	// withCustomContainerRequest {
-	localstack, err := RunContainer(
+	localstack, err := Run(
 		ctx,
-		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
-			ContainerRequest: testcontainers.ContainerRequest{
-				Image:          "localstack/localstack:2.0.0",
-				Networks:       []string{"localstack-network-v2"},
-				NetworkAliases: map[string][]string{"localstack-network-v2": {"localstack"}},
-			},
-		}),
+		"localstack/localstack:2.0.0",
+		network.WithNetwork([]string{"localstack"}, nw),
+		testcontainers.WithEnv(map[string]string{"SERVICES": "s3,sqs"}),
 	)
-	// }
-	require.Nil(t, err)
-	assert.NotNil(t, localstack)
+	testcontainers.CleanupContainer(t, localstack)
+	require.NoError(t, err)
+	require.NotNil(t, localstack)
+
+	networkName := nw.Name
 
 	cli, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:      "amazon/aws-cli:2.7.27",
-			Networks:   []string{"localstack-network-v2"},
+			Networks:   []string{networkName},
 			Entrypoint: []string{"tail"},
 			Cmd:        []string{"-f", "/dev/null"},
 			Env: map[string]string{
@@ -246,8 +236,10 @@ func TestStartV2WithNetwork(t *testing.T) {
 				"AWS_SECRET_ACCESS_KEY": "secretkey",
 				"AWS_REGION":            "eu-west-1",
 			},
-			WaitingFor: wait.ForExec([]string{"/usr/local/bin/aws", "sqs", "create-queue", "--queue-name", "baz", "--region", "eu-west-1",
-				"--endpoint-url", "http://localstack:4566", "--no-verify-ssl"}).
+			WaitingFor: wait.ForExec([]string{
+				"/usr/local/bin/aws", "sqs", "create-queue", "--queue-name", "baz", "--region", "eu-west-1",
+				"--endpoint-url", "http://localstack:4566", "--no-verify-ssl",
+			}).
 				WithStartupTimeout(time.Second * 10).
 				WithExitCodeMatcher(func(exitCode int) bool {
 					return exitCode == 0
@@ -260,6 +252,7 @@ func TestStartV2WithNetwork(t *testing.T) {
 		},
 		Started: true,
 	})
-	require.Nil(t, err)
-	assert.NotNil(t, cli)
+	testcontainers.CleanupContainer(t, cli)
+	require.NoError(t, err)
+	require.NotNil(t, cli)
 }

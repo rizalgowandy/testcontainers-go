@@ -7,6 +7,8 @@ import (
 	"io"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMultiStrategy_WaitUntilReady(t *testing.T) {
@@ -34,7 +36,7 @@ func TestMultiStrategy_WaitUntilReady(t *testing.T) {
 			name: "returns WaitStrategy error",
 			strategy: ForAll(
 				ForNop(
-					func(ctx context.Context, target StrategyTarget) error {
+					func(_ context.Context, _ StrategyTarget) error {
 						return errors.New("intentional failure")
 					},
 				),
@@ -49,7 +51,7 @@ func TestMultiStrategy_WaitUntilReady(t *testing.T) {
 			name: "WithDeadline sets context Deadline for WaitStrategy",
 			strategy: ForAll(
 				ForNop(
-					func(ctx context.Context, target StrategyTarget) error {
+					func(ctx context.Context, _ StrategyTarget) error {
 						if _, set := ctx.Deadline(); !set {
 							return errors.New("expected context.Deadline to be set")
 						}
@@ -70,7 +72,7 @@ func TestMultiStrategy_WaitUntilReady(t *testing.T) {
 			name: "WithStartupTimeoutDefault skips setting context.Deadline when WaitStrategy.Timeout is defined",
 			strategy: ForAll(
 				ForNop(
-					func(ctx context.Context, target StrategyTarget) error {
+					func(ctx context.Context, _ StrategyTarget) error {
 						if _, set := ctx.Deadline(); set {
 							return errors.New("expected context.Deadline not to be set")
 						}
@@ -91,7 +93,7 @@ func TestMultiStrategy_WaitUntilReady(t *testing.T) {
 			name: "WithStartupTimeoutDefault sets context.Deadline for nil WaitStrategy.Timeout",
 			strategy: ForAll(
 				ForNop(
-					func(ctx context.Context, target StrategyTarget) error {
+					func(ctx context.Context, _ StrategyTarget) error {
 						if _, set := ctx.Deadline(); !set {
 							return errors.New("expected context.Deadline to be set")
 						}
@@ -113,8 +115,11 @@ func TestMultiStrategy_WaitUntilReady(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if err := tt.strategy.WaitUntilReady(tt.args.ctx, tt.args.target); (err != nil) != tt.wantErr {
-				t.Errorf("ForAll.WaitUntilReady() error = %v, wantErr = %v", err, tt.wantErr)
+			err := tt.strategy.WaitUntilReady(tt.args.ctx, tt.args.target)
+			if tt.wantErr {
+				require.Error(t, err, "ForAll.WaitUntilReady()")
+			} else {
+				require.NoErrorf(t, err, "ForAll.WaitUntilReady()")
 			}
 		})
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/localstack"
 )
@@ -61,13 +62,12 @@ func awsSession(ctx context.Context, l *localstack.LocalStackContainer) (*sessio
 func TestS3(t *testing.T) {
 	ctx := context.Background()
 
-	// localStackCreateContainer {
-	container, err := localstack.RunContainer(ctx)
-	require.Nil(t, err)
-	// }
+	ctr, err := localstack.Run(ctx, "localstack/localstack:1.4.0")
+	testcontainers.CleanupContainer(t, ctr)
+	require.NoError(t, err)
 
-	session, err := awsSession(ctx, container)
-	require.Nil(t, err)
+	session, err := awsSession(ctx, ctr)
+	require.NoError(t, err)
 
 	s3Uploader := s3manager.NewUploader(session)
 
@@ -81,8 +81,8 @@ func TestS3(t *testing.T) {
 		outputBucket, err := s3API.CreateBucket(&s3.CreateBucketInput{
 			Bucket: aws.String(bucketName),
 		})
-		require.Nil(t, err)
-		assert.NotNil(t, outputBucket)
+		require.NoError(t, err)
+		require.NotNil(t, outputBucket)
 
 		// put object
 		s3Key1 := "key1"
@@ -95,16 +95,16 @@ func TestS3(t *testing.T) {
 			ContentType:        aws.String("application/text"),
 			ContentDisposition: aws.String("attachment"),
 		})
-		require.Nil(t, err)
-		assert.NotNil(t, outputObject)
+		require.NoError(t, err)
+		require.NotNil(t, outputObject)
 
 		t.Run("List Buckets", func(t *testing.T) {
 			output, err := s3API.ListBuckets(nil)
-			require.Nil(t, err)
-			assert.NotNil(t, output)
+			require.NoError(t, err)
+			require.NotNil(t, output)
 
 			buckets := output.Buckets
-			assert.Equal(t, 1, len(buckets))
+			require.Len(t, buckets, 1)
 			assert.Equal(t, bucketName, *buckets[0].Name)
 		})
 
@@ -112,12 +112,12 @@ func TestS3(t *testing.T) {
 			output, err := s3API.ListObjects(&s3.ListObjectsInput{
 				Bucket: aws.String(bucketName),
 			})
-			require.Nil(t, err)
-			assert.NotNil(t, output)
+			require.NoError(t, err)
+			require.NotNil(t, output)
 
 			objects := output.Contents
 
-			assert.Equal(t, 1, len(objects))
+			require.Len(t, objects, 1)
 			assert.Equal(t, s3Key1, *objects[0].Key)
 			assert.Equal(t, int64(len(body1)), *objects[0].Size)
 		})

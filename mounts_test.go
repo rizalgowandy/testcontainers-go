@@ -1,17 +1,59 @@
-package testcontainers
+package testcontainers_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/docker/docker/api/types/mount"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/testcontainers/testcontainers-go"
 )
 
+func TestVolumeMount(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		volumeName  string
+		mountTarget testcontainers.ContainerMountTarget
+	}
+	tests := []struct {
+		name string
+		args args
+		want testcontainers.ContainerMount
+	}{
+		{
+			name: "sample-data:/data",
+			args: args{volumeName: "sample-data", mountTarget: "/data"},
+			want: testcontainers.ContainerMount{Source: testcontainers.GenericVolumeMountSource{Name: "sample-data"}, Target: "/data"},
+		},
+		{
+			name: "web:/var/nginx/html",
+			args: args{volumeName: "web", mountTarget: "/var/nginx/html"},
+			want: testcontainers.ContainerMount{Source: testcontainers.GenericVolumeMountSource{Name: "web"}, Target: "/var/nginx/html"},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equalf(t, tt.want, testcontainers.VolumeMount(tt.args.volumeName, tt.args.mountTarget), "VolumeMount(%v, %v)", tt.args.volumeName, tt.args.mountTarget)
+		})
+	}
+}
+
 func TestContainerMounts_PrepareMounts(t *testing.T) {
+	volumeOptions := &mount.VolumeOptions{
+		Labels: testcontainers.GenericLabels(),
+	}
+
+	expectedLabels := testcontainers.GenericLabels()
+	expectedLabels["hello"] = "world"
+
 	t.Parallel()
 	tests := []struct {
 		name   string
-		mounts ContainerMounts
+		mounts testcontainers.ContainerMounts
 		want   []mount.Mount
 	}{
 		{
@@ -20,80 +62,35 @@ func TestContainerMounts_PrepareMounts(t *testing.T) {
 			want:   make([]mount.Mount, 0),
 		},
 		{
-			name:   "Single bind mount",
-			mounts: ContainerMounts{{Source: GenericBindMountSource{HostPath: "/var/lib/app/data"}, Target: "/data"}},
-			want: []mount.Mount{
-				{
-					Type:   mount.TypeBind,
-					Source: "/var/lib/app/data",
-					Target: "/data",
-				},
-			},
-		},
-		{
-			name:   "Single bind mount - read-only",
-			mounts: ContainerMounts{{Source: GenericBindMountSource{HostPath: "/var/lib/app/data"}, Target: "/data", ReadOnly: true}},
-			want: []mount.Mount{
-				{
-					Type:     mount.TypeBind,
-					Source:   "/var/lib/app/data",
-					Target:   "/data",
-					ReadOnly: true,
-				},
-			},
-		},
-		{
-			name: "Single bind mount - with options",
-			mounts: ContainerMounts{
-				{
-					Source: DockerBindMountSource{
-						HostPath: "/var/lib/app/data",
-						BindOptions: &mount.BindOptions{
-							Propagation: mount.PropagationPrivate,
-						},
-					},
-					Target: "/data",
-				},
-			},
-			want: []mount.Mount{
-				{
-					Type:   mount.TypeBind,
-					Source: "/var/lib/app/data",
-					Target: "/data",
-					BindOptions: &mount.BindOptions{
-						Propagation: mount.PropagationPrivate,
-					},
-				},
-			},
-		},
-		{
 			name:   "Single volume mount",
-			mounts: ContainerMounts{{Source: GenericVolumeMountSource{Name: "app-data"}, Target: "/data"}},
+			mounts: testcontainers.ContainerMounts{{Source: testcontainers.GenericVolumeMountSource{Name: "app-data"}, Target: "/data"}},
 			want: []mount.Mount{
 				{
-					Type:   mount.TypeVolume,
-					Source: "app-data",
-					Target: "/data",
+					Type:          mount.TypeVolume,
+					Source:        "app-data",
+					Target:        "/data",
+					VolumeOptions: volumeOptions,
 				},
 			},
 		},
 		{
 			name:   "Single volume mount - read-only",
-			mounts: ContainerMounts{{Source: GenericVolumeMountSource{Name: "app-data"}, Target: "/data", ReadOnly: true}},
+			mounts: testcontainers.ContainerMounts{{Source: testcontainers.GenericVolumeMountSource{Name: "app-data"}, Target: "/data", ReadOnly: true}},
 			want: []mount.Mount{
 				{
-					Type:     mount.TypeVolume,
-					Source:   "app-data",
-					Target:   "/data",
-					ReadOnly: true,
+					Type:          mount.TypeVolume,
+					Source:        "app-data",
+					Target:        "/data",
+					ReadOnly:      true,
+					VolumeOptions: volumeOptions,
 				},
 			},
 		},
 		{
 			name: "Single volume mount - with options",
-			mounts: ContainerMounts{
+			mounts: testcontainers.ContainerMounts{
 				{
-					Source: DockerVolumeMountSource{
+					Source: testcontainers.DockerVolumeMountSource{
 						Name: "app-data",
 						VolumeOptions: &mount.VolumeOptions{
 							NoCopy: true,
@@ -112,9 +109,7 @@ func TestContainerMounts_PrepareMounts(t *testing.T) {
 					Target: "/data",
 					VolumeOptions: &mount.VolumeOptions{
 						NoCopy: true,
-						Labels: map[string]string{
-							"hello": "world",
-						},
+						Labels: expectedLabels,
 					},
 				},
 			},
@@ -122,7 +117,7 @@ func TestContainerMounts_PrepareMounts(t *testing.T) {
 
 		{
 			name:   "Single tmpfs mount",
-			mounts: ContainerMounts{{Source: GenericTmpfsMountSource{}, Target: "/data"}},
+			mounts: testcontainers.ContainerMounts{{Source: testcontainers.GenericTmpfsMountSource{}, Target: "/data"}},
 			want: []mount.Mount{
 				{
 					Type:   mount.TypeTmpfs,
@@ -132,7 +127,7 @@ func TestContainerMounts_PrepareMounts(t *testing.T) {
 		},
 		{
 			name:   "Single volume mount - read-only",
-			mounts: ContainerMounts{{Source: GenericTmpfsMountSource{}, Target: "/data", ReadOnly: true}},
+			mounts: testcontainers.ContainerMounts{{Source: testcontainers.GenericTmpfsMountSource{}, Target: "/data", ReadOnly: true}},
 			want: []mount.Mount{
 				{
 					Type:     mount.TypeTmpfs,
@@ -142,10 +137,10 @@ func TestContainerMounts_PrepareMounts(t *testing.T) {
 			},
 		},
 		{
-			name: "Single volume mount - with options",
-			mounts: ContainerMounts{
+			name: "Single tmpfs mount - with options",
+			mounts: testcontainers.ContainerMounts{
 				{
-					Source: DockerTmpfsMountSource{
+					Source: testcontainers.DockerTmpfsMountSource{
 						TmpfsOptions: &mount.TmpfsOptions{
 							SizeBytes: 50 * 1024 * 1024,
 							Mode:      0o644,
@@ -170,7 +165,78 @@ func TestContainerMounts_PrepareMounts(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equalf(t, tt.want, mapToDockerMounts(tt.mounts), "PrepareMounts()")
+			assert.Equalf(t, tt.want, tt.mounts.PrepareMounts(), "PrepareMounts()")
 		})
 	}
+}
+
+func TestCreateContainerWithVolume(t *testing.T) {
+	volumeName := "test-volume"
+	// volumeMounts {
+	req := testcontainers.ContainerRequest{
+		Image: "alpine",
+		Mounts: testcontainers.ContainerMounts{
+			{
+				Source: testcontainers.GenericVolumeMountSource{
+					Name: volumeName,
+				},
+				Target: "/data",
+			},
+		},
+	}
+	// }
+
+	ctx := context.Background()
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	testcontainers.CleanupContainer(t, c, testcontainers.RemoveVolumes(volumeName))
+	require.NoError(t, err)
+
+	// Check if volume is created
+	client, err := testcontainers.NewDockerClientWithOpts(ctx)
+	require.NoError(t, err)
+	defer client.Close()
+
+	volume, err := client.VolumeInspect(ctx, "test-volume")
+	require.NoError(t, err)
+	assert.Equal(t, "test-volume", volume.Name)
+}
+
+func TestMountsReceiveRyukLabels(t *testing.T) {
+	volumeName := "app-data"
+	req := testcontainers.ContainerRequest{
+		Image: "alpine",
+		Mounts: testcontainers.ContainerMounts{
+			{
+				Source: testcontainers.GenericVolumeMountSource{
+					Name: volumeName,
+				},
+				Target: "/data",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	client, err := testcontainers.NewDockerClientWithOpts(ctx)
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Ensure the volume is removed before creating the container
+	// otherwise the volume will be reused and the labels won't be set.
+	err = client.VolumeRemove(ctx, volumeName, true)
+	require.NoError(t, err)
+
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	testcontainers.CleanupContainer(t, c, testcontainers.RemoveVolumes(volumeName))
+	require.NoError(t, err)
+
+	// Check if volume is created with the expected labels.
+	volume, err := client.VolumeInspect(ctx, volumeName)
+	require.NoError(t, err)
+	require.Equal(t, testcontainers.GenericLabels(), volume.Labels)
 }

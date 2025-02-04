@@ -7,41 +7,31 @@ You can do so by specifying a `Context` (the filepath to the build context on
 your local filesystem) and optionally a `Dockerfile` (defaults to "Dockerfile")
 like so:
 
-```go
-req := ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context: "/path/to/build/context",
-			Dockerfile: "CustomDockerfile",
-		},
-	}
-```
+<!--codeinclude-->
+[Building From a Dockerfile including Repository and Tag](../../from_dockerfile_test.go) inside_block:fromDockerfileIncludingRepo
+<!--/codeinclude-->
+
+As you can see, you can also specify the `Repo` and `Tag` optional fields to use for the image. If not passed, the
+image will be built with a random name and tag.
 
 If your Dockerfile expects build args: 
 
 ```Dockerfile
-FROM alpine
+FROM alpine@sha256:51b67269f354137895d43f3b3d810bfacd3945438e94dc5ac55fdac340352f48
 
 ARG FOO
 
 ```
 You can specify them like:
 
-```go
-req := ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context: "/path/to/build/context",
-			Dockerfile: "CustomDockerfile",
-			BuildArgs: map[string]*string {
-				"FOO": "BAR",
-			},
-		},
-	}
-```
+<!--codeinclude-->
+[Building From a Dockerfile including build arguments](../../docker_test.go) inside_block:fromDockerfileWithBuildArgs
+<!--/codeinclude-->
+
 ## Dynamic Build Context
 
 If you would like to send a build context that you created in code (maybe you have a dynamic Dockerfile), you can
 send the build context as an `io.Reader` since the Docker Daemon accepts it as a tar file, you can use the [tar](https://golang.org/pkg/archive/tar/) package to create your context.
-
 
 To do this you would use the `ContextArchive` attribute in the `FromDockerfile` struct.
 
@@ -61,6 +51,15 @@ fromDockerfile := testcontainers.FromDockerfile{
 **Please Note** if you specify a `ContextArchive` this will cause _Testcontainers for Go_ to ignore the path passed
 in to `Context`.
 
+## Ignoring files in the build context
+
+The same as Docker has a `.dockerignore` file to ignore files in the build context, _Testcontainers for Go_ also supports this feature.
+A `.dockerignore` living in the root of the build context will be used to filter out files that should not be sent to the Docker daemon.
+The `.dockerignore` file won't be sent to the Docker daemon either.
+
+!!! note
+    At this moment, _Testcontainers for Go_ does not support Dockerfile-specific `.dockerignore` files.
+
 ## Images requiring auth
 
 If you are building a local Docker image that is fetched from a Docker image in a registry requiring authentication
@@ -75,3 +74,31 @@ req := ContainerRequest{
 	},
 }
 ```
+
+## Keeping built images
+
+Per default, built images are deleted after being used.
+However, some images you build might have no or only minor changes during development.
+Building them for each test run might take a lot of time.
+You can avoid this by setting `KeepImage` in `FromDockerfile`.
+If the image is being kept, cached layers might be reused during building or even the whole image.
+
+```go
+req := ContainerRequest{
+    FromDockerfile: testcontainers.FromDockerfile{
+        // ...
+		KeepImage: true,
+	},
+}
+```
+
+## Advanced usage
+
+In the case you need to pass additional arguments to the `docker build` command, you can use the `BuildOptionsModifier` attribute in the `FromDockerfile` struct.
+
+This field holds a function that has access to Docker's ImageBuildOptions type, which is used to build the image. You can use this modifier **on your own risk** to modify the build options with as many options as you need.
+
+<!--codeinclude-->
+[Building From a Dockerfile including build options modifier](../../from_dockerfile_test.go) inside_block:buildFromDockerfileWithModifier
+[Dockerfile including target](../../testdata/target.Dockerfile)
+<!--/codeinclude-->

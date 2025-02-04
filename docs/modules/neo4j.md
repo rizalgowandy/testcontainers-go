@@ -1,6 +1,6 @@
 # Neo4j
 
-Not available until the next release of testcontainers-go <a href="https://github.com/testcontainers/testcontainers-go"><span class="tc-version">:material-tag: main</span></a>
+Since testcontainers-go <a href="https://github.com/testcontainers/testcontainers-go/releases/tag/v0.20.0"><span class="tc-version">:material-tag: v0.20.0</span></a>
 
 ## Introduction
 
@@ -19,18 +19,26 @@ go get github.com/testcontainers/testcontainers-go/modules/neo4j
 Running Neo4j as a single-instance server, with the [APOC plugin](https://neo4j.com/developer/neo4j-apoc/) enabled:
 
 <!--codeinclude-->
-[Creating a Neo4j container](../../modules/neo4j/neo4j_test.go) inside_block:neo4jCreateContainer
+[Creating a Neo4j container](../../modules/neo4j/examples_test.go) inside_block:runNeo4jContainer
 <!--/codeinclude-->
 
 ## Module Reference
 
-The Neo4j module exposes one entrypoint function to create the Neo4j container, and this function receives two parameters:
+### Run function
+
+- Since testcontainers-go <a href="https://github.com/testcontainers/testcontainers-go/releases/tag/v0.32.0"><span class="tc-version">:material-tag: v0.32.0</span></a>
+
+!!!info
+    The `RunContainer(ctx, opts...)` function is deprecated and will be removed in the next major release of _Testcontainers for Go_.
+
+The Neo4j module exposes one entrypoint function to create the Neo4j container, and this function receives three parameters:
 
 ```golang
-func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomizer) (*Neo4jContainer, error)
+func Run(ctx context.Context, img string, opts ...testcontainers.ContainerCustomizer) (*Neo4jContainer, error)
 ```
 
 - `context.Context`, the Go context.
+- `string`, the Docker image to use.
 - `testcontainers.ContainerCustomizer`, a variadic argument for passing options.
 
 ### Container Ports
@@ -47,14 +55,10 @@ When starting the Neo4j container, you can pass options in a variadic way to con
 
 #### Image
 
-If you need to set a different Neo4j Docker image, you can use `testcontainers.WithImage` with a valid Docker image
-for Couchbase. E.g. `testcontainers.WithImage("docker.io/neo4j:4.4")`.
+If you need to set a different Neo4j Docker image, you can set a valid Docker image as the second argument in the `Run` function.
+E.g. `Run(context.Background(), "neo4j:4.4")`.
 
-By default, the container will use the following Docker image:
-
-<!--codeinclude-->
-[Default Docker image](../../modules/neo4j/neo4j.go) inside_block:defaultImage
-<!--/codeinclude-->
+{% include "../features/common_functional_options.md" %}
 
 #### Logger
 
@@ -70,11 +74,7 @@ This option sets a custom logger to be used by the container. Consider calling t
 #### Authentication
 
 By default, the Neo4j container will be started with authentication disabled. If you need to enable authentication, you can
-use the `WithAuthentication` option.
-
-<!--codeinclude-->
-[With Authentication](../../modules/neo4j/neo4j_test.go) inside_block:neo4jCreateContainer
-<!--/codeinclude-->
+use the `WithAuthentication(pwd string)` option.
 
 By default, the container will not use authentication, automatically prepending the `WithoutAuthentication` option to the options list.
 
@@ -83,7 +83,7 @@ By default, the container will not use authentication, automatically prepending 
 By default, the Neo4j container will start without any Labs plugins enabled, but you can enable them using the `WithLabsPlugin` optional function.
 
 <!--codeinclude-->
-[Adding Labs Plugins](../../modules/neo4j/neo4j_test.go) inside_block:neo4jCreateContainer
+[Adding Labs Plugins](../../modules/neo4j/neo4j_test.go) inside_block:withLabsPlugin
 <!--/codeinclude-->
 
 The list of available plugins is:

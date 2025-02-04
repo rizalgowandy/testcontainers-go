@@ -23,32 +23,44 @@ go get github.com/testcontainers/testcontainers-go/modules/pulsar
 Create a `Pulsar` container to use it in your tests:
 
 <!--codeinclude-->
-[Creating a Pulsar container](../../modules/pulsar/pulsar_test.go) inside_block:startPulsarContainer
+[Creating a Pulsar container](../../modules/pulsar/examples_test.go) inside_block:runPulsarContainer
 <!--/codeinclude-->
-
-where the `tt.opts` are the options to configure the container. See the [Container Options](#container-options) section for more details.
 
 ## Module Reference
 
-The Redis module exposes one entrypoint function to create the containerr, and this function receives two parameters:
+### Run function
+
+- Since testcontainers-go <a href="https://github.com/testcontainers/testcontainers-go/releases/tag/v0.32.0"><span class="tc-version">:material-tag: v0.32.0</span></a>
+
+!!!info
+    The `RunContainer(ctx, opts...)` function is deprecated and will be removed in the next major release of _Testcontainers for Go_.
+
+The Pulsar module exposes one entrypoint function to create the container, and this function receives three parameters:
 
 ```golang
-func RunContainer(ctx context.Context, opts ...testcontainers.ContainerCustomizer) (*Container, error)
+func Run(ctx context.Context, img string, opts ...testcontainers.ContainerCustomizer) (*Container, error)
 ```
 
 - `context.Context`, the Go context.
+- `string`, the Docker image to use.
 - `testcontainers.ContainerCustomizer`, a variadic argument for passing options.
 
 ### Container Options
 
 When starting the Pulsar container, you can pass options in a variadic way to configure it.
 
-#### Pulsar Image
-If you need to set a different Pulsar image you can use the `testcontainers.WithImage`.
+#### Image
+
+If you need to set a different Pulsar Docker image, you can set a valid Docker image as the second argument in the `Run` function.
+E.g. `Run(context.Background(), "apachepulsar/pulsar:2.10.2")`.
+
+{% include "../features/common_functional_options.md" %}
 
 <!--codeinclude-->
-[Set Pulsar image](../../modules/pulsar/pulsar_test.go) inside_block:setPulsarImage
+[Advanced Docker settings](../../modules/pulsar/pulsar_test.go) inside_block:advancedDockerSettings
 <!--/codeinclude-->
+
+Here, the `nwName` relates to the name of a previously created Docker network. Please see the [How to create a network](../features/creating_networks.md) documentation for more information.
 
 #### Pulsar Configuration
 If you need to set Pulsar configuration variables you can use the `WithPulsarEnv` to set Pulsar environment variables: the `PULSAR_PREFIX_` prefix will be automatically added for you.
@@ -76,35 +88,6 @@ If you need to test Pulsar Transactions you can enable the transactions feature:
 <!--codeinclude-->
 [Create a Pulsar container with transactions](../../modules/pulsar/pulsar_test.go) inside_block:withTransactions
 <!--/codeinclude-->
-
-#### Log consumers
-If you need to collect the logs from the Pulsar container, you can add your own LogConsumer with the `WithLogConsumers` function, which accepts a variadic argument of LogConsumers.
-
-<!--codeinclude-->
-[Adding LogConsumers](../../modules/pulsar/pulsar_test.go) inside_block:withLogConsumers
-<!--/codeinclude-->
-
-An example of a LogConsumer could be the following:
-
-<!--codeinclude-->
-[Example LogConsumer](../../modules/pulsar/pulsar_test.go) inside_block:logConsumerForTesting
-<!--/codeinclude-->
-
-!!!warning
-    You will need to explicitly stop the producer in your tests.
-
-If you want to know more about LogConsumers, please check the [Following Container Logs](../features/follow_logs.md) documentation.
-
-#### Advanced configuration
-
-In the case you need a more advanced configuration regarding the config, host config and endpoint settings Docker types, you can leverage the modifier functions that are available in
-the ContainerRequest. The Pulsar container exposes a way to interact with those modifiers in a simple manner, using the aforementioned options in the `RunContainer` function:
-
-<!--codeinclude-->
-[Advanced Docker settings](../../modules/pulsar/pulsar_test.go) inside_block:advancedDockerSettings
-<!--/codeinclude-->
-
-Please check out the [Advanced Settings](../features/creating_container.md#advanced-settings) for creating containers documentation.
 
 ### Container methods
 
